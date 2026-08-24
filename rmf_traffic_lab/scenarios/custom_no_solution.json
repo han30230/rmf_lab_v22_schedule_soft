@@ -1,0 +1,29 @@
+{
+  "name": "custom_no_solution",
+  "description": "Two robots exchange occupied endpoints through one narrow route with no buffer",
+  "map": "L1",
+  "mode": "auto",
+  "_editing_notes": [
+    "Delete one object from robots to test robot-count reduction",
+    "Add a side node and connect it to two corridor nodes to make a passing loop",
+    "Node and robot start/goal values are zero-based indexes into nodes"
+  ],
+  "nodes": [
+    {"name": "LEFT", "x": -4.0, "y": 0.0, "holding": true, "parking": true},
+    {"name": "C1", "x": -2.0, "y": 0.0, "passthrough": true},
+    {"name": "C2", "x": 0.0, "y": 0.0, "passthrough": true},
+    {"name": "C3", "x": 2.0, "y": 0.0, "passthrough": true},
+    {"name": "RIGHT", "x": 4.0, "y": 0.0, "holding": true, "parking": true}
+  ],
+  "lanes": [
+    {"from": 0, "to": 1, "bidirectional": true},
+    {"from": 1, "to": 2, "bidirectional": true, "mutex_group": "corridor"},
+    {"from": 2, "to": 3, "bidirectional": true, "mutex_group": "corridor"},
+    {"from": 3, "to": 4, "bidirectional": true}
+  ],
+  "robots": [
+    {"name": "R_LEFT", "start": 0, "goal": 4, "yaw": 0.0},
+    {"name": "R_RIGHT", "start": 4, "goal": 0, "yaw": 3.141592653589793}
+  ],
+  "closed_lanes": []
+}

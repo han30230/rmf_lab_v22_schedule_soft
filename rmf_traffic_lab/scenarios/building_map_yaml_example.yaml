@@ -1,0 +1,31 @@
+building_name: rmf_lab_yaml_example
+doors: {}
+levels:
+  L1:
+    vertices:
+      - [0.0, 0.0, START, {is_holding_point: true, is_parking_spot: true}]
+      - [2.0, 0.0, LEFT_GATE, {is_passthrough_point: true}]
+      - [4.0, 0.0, CENTER, {is_passthrough_point: true}]
+      - [6.0, 0.0, RIGHT_GATE, {is_passthrough_point: true}]
+      - [8.0, 0.0, GOAL, {is_holding_point: true, is_parking_spot: true}]
+      - [4.0, 2.0, PASSING_BAY, {is_holding_point: true, is_parking_spot: true}]
+    lanes:
+      - - 0
+        - 1
+        - &corridor
+          orientation: 0.0
+          speed_limit: 1.0
+          rotationAllowed: false
+          corridor:
+            leftWidth: 0.7
+            rightWidth: 0.7
+            corridorRefPoint: CONTOUR
+      - [1, 0, *corridor]
+      - [1, 2, *corridor]
+      - [2, 1, *corridor]
+      - [2, 3, *corridor]
+      - [3, 2, *corridor]
+      - [3, 4, *corridor]
+      - [4, 3, *corridor]
+      - [2, 5, {speed_limit: 0.6, rotationAllowed: true}]
+      - [5, 2, {speed_limit: 0.6, rotationAllowed: true}]

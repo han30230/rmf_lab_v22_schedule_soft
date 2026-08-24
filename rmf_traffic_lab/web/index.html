@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>RMF Traffic Core Web Simulator</title>
+  <link rel="stylesheet" href="/web/app.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="toolbar toolbar-main">
+      <div class="brand">RMF Traffic Core Lab <span id="connection-badge" class="badge neutral">연결 확인 중</span></div>
+      <label>시나리오
+        <select id="scenario-select"></select>
+      </label>
+      <button id="load-json-button" type="button">JSON 열기</button>
+      <input id="load-json-input" type="file" accept="application/json,.json" hidden>
+      <button id="load-yaml-button" class="success" type="button">YAML 맵 열기</button>
+      <input id="load-yaml-input" type="file" accept="application/yaml,text/yaml,.yaml,.yml" hidden>
+      <label id="yaml-level-label" hidden>YAML 레벨
+        <select id="yaml-level-select"></select>
+      </label>
+      <button id="download-json-button" type="button">JSON 다운로드</button>
+      <button id="save-server-button" type="button">서버 저장</button>
+      <label>RMF 코어
+        <select id="core-profile">
+          <option value="before">Before · 기본 RMF</option>
+          <option value="after">After · 수정 RMF</option>
+        </select>
+      </label>
+      <span id="core-badge" class="badge before">BEFORE · 기본 코어</span>
+      <label class="grow">setup.bash
+        <input id="setup-path" type="text" value="~/rmf_ws/install/setup.bash">
+      </label>
+      <label class="check"><input id="rebuild-lab" type="checkbox" checked> 변경사항 다시 빌드</label>
+      <label>실행 제한 <input id="timeout-input" class="short" type="number" min="1" max="3600" value="60"> s</label>
+      <button id="run-button" class="primary" type="button">▶ 변경사항 빌드 후 RMF 분석</button>
+      <button id="stop-button" class="danger" type="button" disabled>■ 중지</button>
+      <button id="help-button" type="button">사용법</button>
+    </div>
+    <div class="toolbar toolbar-edit">
+      <strong>맵 편집</strong>
+      <button id="add-node-button" type="button">노드 추가</button>
+      <button id="add-lane-button" type="button">선택 노드 양방향 Lane</button>
+      <button id="delete-selection-button" type="button">선택 삭제</button>
+      <span class="separator"></span>
+      <button id="zoom-out-button" type="button" aria-label="축소">−</button>
+      <button id="zoom-in-button" type="button" aria-label="확대">+</button>
+      <button id="zoom-reset-button" type="button">100%</button>
+      <button id="fit-button" type="button">화면 맞춤</button>
+      <span id="zoom-label">100%</span>
+      <span class="spacer"></span>
+      <button id="focus-map-button" type="button">지도 넓게</button>
+      <button id="toggle-output-button" type="button">하단 결과 접기/펼치기</button>
+      <button id="reset-layout-button" type="button">기본 배치</button>
+      <span id="graph-summary" class="badge graph"></span>
+    </div>
+  </header>
+
+  <main id="workspace">
+    <section id="top-workspace">
+      <section id="map-panel" aria-label="2D RMF 실행 지도">
+        <div class="panel-heading">
+          <strong>2D RMF 실행 뷰</strong>
+          <span>흰색 노즈=전진 · 점선=최종 계획 · 초록=자동 혼잡 · 보라=수동 penalty</span>
+        </div>
+        <svg id="map-svg" role="img" aria-label="RMF navigation graph and robot trajectories">
+          <defs>
+            <marker id="arrow-end" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L8,4 L0,8 z" fill="context-stroke"></path>
+            </marker>
+            <marker id="arrow-start" markerWidth="8" markerHeight="8" refX="1" refY="4" orient="auto-start-reverse" markerUnits="strokeWidth">
+              <path d="M8,0 L0,4 L8,8 z" fill="context-stroke"></path>
+            </marker>
+            <filter id="robot-shadow" x="-40%" y="-40%" width="180%" height="180%">
+              <feDropShadow dx="2" dy="3" stdDeviation="2" flood-opacity=".25"></feDropShadow>
+            </filter>
+          </defs>
+          <g id="map-world">
+            <g id="corridor-layer"></g>
+            <g id="lane-layer"></g>
+            <g id="trajectory-layer"></g>
+            <g id="node-layer"></g>
+            <g id="robot-layer"></g>
+          </g>
+        </svg>
+        <div class="map-footer"><span id="map-hint">노드 드래그 · Ctrl+클릭으로 노드 2개 선택 · 휠 확대/축소 · 가운데 버튼 이동</span></div>
+      </section>
+
+      <div id="horizontal-splitter" class="splitter vertical" role="separator" aria-orientation="vertical"></div>
+
+      <aside id="editor-panel">
+        <h2>실시간 RMF 판단</h2>
+        <div id="live-decision" class="decision-card">실행 후 재생하면 도달 목표·이동 근거·경로 근거·협상·Schedule DB가 표시됩니다.</div>
+
+        <nav class="sub-tabs" aria-label="편집 탭">
+          <button class="sub-tab active" data-right-tab="properties" type="button">노드/Lane</button>
+          <button class="sub-tab" data-right-tab="robots" type="button">로봇</button>
+          <button class="sub-tab" data-right-tab="core" type="button">RMF Core</button>
+        </nav>
+
+        <section id="right-properties" class="right-page active">
+          <div id="selection-title" class="section-note">노드 또는 Lane을 선택하세요.</div>
+          <div class="form-grid">
+            <label>이름 <input id="prop-name" type="text"></label>
+            <label>X <input id="prop-x" type="number" step="0.001"></label>
+            <label>Y <input id="prop-y" type="number" step="0.001"></label>
+            <label>Mutex group <input id="prop-mutex" type="text"></label>
+            <label class="check"><input id="prop-holding" type="checkbox"> Holding</label>
+            <label class="check"><input id="prop-parking" type="checkbox"> Parking</label>
+            <label class="check"><input id="prop-passthrough" type="checkbox"> Passthrough</label>
+            <label class="check"><input id="prop-bidirectional" type="checkbox"> 양방향</label>
+            <label>Speed limit <input id="prop-speed" type="number" min="0" step="0.001" placeholder="제한 없음"></label>
+            <label>AFTER 우회 penalty <input id="prop-penalty" type="number" min="0" step="10" value="0"></label>
+            <label class="check"><input id="prop-closed" type="checkbox"> Lane 폐쇄</label>
+          </div>
+          <details id="yaml-lane-properties" class="yaml-properties" hidden>
+            <summary>원본 YAML Lane·Corridor 속성</summary>
+            <div class="form-grid">
+              <label>orientation(rad) <input id="prop-yaml-orientation" type="number" step="0.001"></label>
+              <label class="check"><input id="prop-yaml-rotation" type="checkbox"> rotationAllowed</label>
+              <label>Corridor leftWidth(m) <input id="prop-corridor-left" type="number" min="0" step="0.01"></label>
+              <label>Corridor rightWidth(m) <input id="prop-corridor-right" type="number" min="0" step="0.01"></label>
+              <label>corridorRefPoint <input id="prop-corridor-ref" type="text"></label>
+            </div>
+            <p class="guide">폭·orientation·rotationAllowed는 원본 YAML과 지도 표시에 보존됩니다. 현재 C++ Graph 계획에는 좌표·방향성·speed limit·mutex가 반영되며 이 세 속성은 아직 제약으로 강제되지 않습니다.</p>
+          </details>
+          <button id="apply-properties-button" class="wide" type="button">선택 항목에 적용</button>
+        </section>
+
+        <section id="right-robots" class="right-page">
+          <div class="table-scroll robot-table-wrap">
+            <table id="robot-table">
+              <thead><tr><th>name</th><th>start</th><th>goal</th><th>yaw(rad)</th><th>출발(s)</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <button id="add-robot-button" type="button">로봇 추가</button>
+          <p class="guide">start/goal은 노드 index입니다. 출발 시각은 계획 전에 RMF가 알고 있는 요청 시각이며 실행 중 동적 작업 투입과는 다릅니다.</p>
+        </section>
+
+        <section id="right-core" class="right-page">
+          <div class="form-stack">
+            <label>Before setup <input id="before-setup" type="text"></label>
+            <label>Before source <input id="before-source" type="text"></label>
+            <label>After workspace <input id="after-workspace" type="text"></label>
+            <label>After setup <input id="after-setup" type="text"></label>
+            <label>After source <input id="after-source" type="text"></label>
+            <label>Base ROS setup <input id="base-ros-setup" type="text"></label>
+            <label>After label <input id="after-label" type="text"></label>
+            <label>AFTER 우회 모드
+              <select id="penalty-mode">
+                <option value="shared_corridor">자동 혼잡 · 2대 이상 예상 점유 통로</option>
+                <option value="shortest_path">자동 우회 · 기존 최단경로 회피</option>
+                <option value="manual">수동 · Lane 속성의 AFTER penalty</option>
+                <option value="off">사용 안 함 · 다른 코어 수정 실험</option>
+              </select>
+            </label>
+            <label>혼잡/우회 penalty 강도 <input id="penalty-value" type="number" min="0.1" max="100000" step="10" value="60"></label>
+            <label class="check"><input id="rebuild-after" type="checkbox" checked> After 실행 전 rmf_traffic colcon build</label>
+          </div>
+          <p class="guide">자동 혼잡은 실제 RMF free-flow baseline 경로가 같은 물리 통로에서 겹치는지 계산해 수정 Planner의 A* g-cost에 반영합니다.</p>
+          <button id="prepare-after-button" class="success wide" type="button">AFTER 코어 복사·우회 패치 준비</button>
+          <button id="refresh-compare-button" class="wide" type="button">Before/After 결과 다시 읽기</button>
+        </section>
+      </aside>
+    </section>
+
+    <div id="vertical-splitter" class="splitter horizontal" role="separator" aria-orientation="horizontal"></div>
+
+    <section id="output-panel">
+      <div class="playback-bar">
+        <strong>궤적 재생</strong>
+        <button id="play-button" class="success" type="button">▶ 계획 재생</button>
+        <input id="time-slider" type="range" min="0" max="1000" value="0">
+        <span id="time-label">0.00 / 0.00 s</span>
+        <span class="spacer"></span>
+        <a id="jsonl-download" class="button-link disabled" href="#">JSONL 다운로드</a>
+        <span id="run-status" class="badge neutral">대기</span>
+      </div>
+      <nav id="output-tabs" class="output-tabs" aria-label="분석 결과 탭">
+        <button class="output-tab active" data-output-tab="runtime" type="button">실행 로그</button>
+        <button class="output-tab" data-output-tab="runtime-summary" type="button">실행 로그 요약</button>
+        <button class="output-tab" data-output-tab="raw" type="button">원본 JSONL</button>
+        <button class="output-tab" data-output-tab="jsonl-summary" type="button">JSONL 요약</button>
+        <button class="output-tab" data-output-tab="diagnosis" type="button">진단 요약</button>
+        <button class="output-tab" data-output-tab="diagnosis-raw" type="button">진단 원본</button>
+        <button class="output-tab" data-output-tab="schedule" type="button">Schedule Database</button>
+        <button class="output-tab" data-output-tab="astar" type="button">A* 내부 과정</button>
+        <button class="output-tab" data-output-tab="decisions" type="button">스텝별 판단 근거</button>
+        <button class="output-tab" data-output-tab="compare" type="button">Before / After 성과</button>
+      </nav>
+
+      <section id="output-runtime" class="output-page active"><pre id="runtime-log"></pre></section>
+      <section id="output-runtime-summary" class="output-page"><pre id="runtime-summary"></pre></section>
+      <section id="output-raw" class="output-page"><pre id="raw-jsonl"></pre></section>
+      <section id="output-jsonl-summary" class="output-page"><pre id="jsonl-summary"></pre></section>
+      <section id="output-diagnosis" class="output-page"><pre id="diagnosis-summary"></pre></section>
+      <section id="output-diagnosis-raw" class="output-page"><pre id="diagnosis-raw"></pre></section>
+
+      <section id="output-schedule" class="output-page complex-page">
+        <div class="analysis-toolbar">
+          <strong>실제 rmf_traffic::schedule::Database 기록</strong>
+          <button id="copy-schedule-button" type="button">현재 표 전체 복사</button>
+          <select id="schedule-kind">
+            <option value="state">DB 상태</option><option value="operation">쓰기/읽기 API</option>
+            <option value="participant">Participants</option><option value="route">Itineraries</option>
+            <option value="point">Trajectory 원본</option>
+          </select>
+        </div>
+        <div class="analysis-split">
+          <div class="table-scroll"><table id="schedule-table"></table></div>
+          <div class="explanation-pane"><nav class="mini-tabs"><button class="mini-tab active" data-schedule-side="row" type="button">선택 행 해석</button><button class="mini-tab" data-schedule-side="guide" type="button">용어·버전 가이드</button></nav><pre id="schedule-explanation"></pre></div>
+        </div>
+      </section>
+
+      <section id="output-astar" class="output-page complex-page">
+        <div class="analysis-toolbar"><strong>Planner::Debug 실제 frontier</strong><button id="copy-astar-button" type="button">전체 A* 복사</button></div>
+        <div class="analysis-split">
+          <div class="table-scroll"><table id="astar-table"></table></div>
+          <div class="explanation-pane"><nav class="mini-tabs"><button class="mini-tab active" data-astar-side="row" type="button">선택 단계 해석</button><button class="mini-tab" data-astar-side="guide" type="button">g/h/f 가이드</button></nav><pre id="astar-explanation"></pre></div>
+        </div>
+      </section>
+
+      <section id="output-decisions" class="output-page complex-page">
+        <div class="analysis-toolbar"><strong>A* → 후보 → 협상 → 안전검사 → DB commit</strong><button id="copy-decisions-button" type="button">전체 판단 복사</button></div>
+        <div class="analysis-split">
+          <div class="table-scroll"><table id="decision-table"></table></div>
+          <div class="explanation-pane"><pre id="decision-explanation">실행 후 행을 선택하면 해당 순간의 판단과 실제 JSONL 근거를 표시합니다.</pre></div>
+        </div>
+      </section>
+
+      <section id="output-compare" class="output-page complex-page">
+        <div class="analysis-toolbar"><strong>동일 Scenario SHA 기준 Before/After 비교</strong><button id="copy-compare-button" type="button">비교 전체 복사</button></div>
+        <div class="analysis-split">
+          <div class="table-scroll"><table id="compare-table"></table></div>
+          <div class="explanation-pane"><pre id="compare-explanation">Before와 After를 각각 실행하면 비교 결과가 표시됩니다.</pre></div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <footer id="status-bar">시나리오를 편집한 뒤 ‘변경사항 빌드 후 RMF 분석’을 누르세요.</footer>
+
+  <dialog id="help-dialog">
+    <h2>RMF Traffic Core Web 사용법</h2>
+    <ol>
+      <li>시나리오를 선택하거나 JSON 파일을 엽니다.</li>
+      <li>실제 building-map은 `YAML 맵 열기`로 전체 vertices/lanes를 불러오고, 여러 층이면 YAML 레벨을 선택합니다.</li>
+      <li>노드를 드래그하고, Ctrl+클릭으로 노드 두 개를 선택해 Lane을 추가합니다.</li>
+      <li>오른쪽에서 노드·Lane 속성과 로봇 start/goal/yaw/출발시각을 편집합니다.</li>
+      <li>Before 또는 After 코어를 선택하고 실제 RMF 분석을 실행합니다.</li>
+      <li>하단에서 원본 JSONL, Schedule DB, A*, 판단 근거와 Before/After를 확인합니다.</li>
+      <li>재생 버튼으로 실제 RMF trajectory의 x·y·yaw를 시간순으로 봅니다.</li>
+    </ol>
+    <p>현재 화면은 Traffic Core 실험기입니다. 실제 운영 Schedule DB나 로봇에 명령하지 않습니다.</p>
+    <label>서버 접근 토큰 <input id="access-token" type="password" autocomplete="current-password" placeholder="서버가 요구할 때만 입력"></label>
+    <div class="dialog-actions"><button id="save-token-button" type="button">토큰 저장</button><button id="close-help-button" class="primary" type="button">닫기</button></div>
+  </dialog>
+
+  <script src="/web/app.js"></script>
+</body>
+</html>
